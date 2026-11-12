@@ -8,7 +8,7 @@ from typing import List, Optional
 
 
 _REFINEMENT_ITERATION = re.compile(r'^\s*(\w[\w ]*?) refinement iteration (\d+)\s*$')
-_SELECTED = re.compile(r'^\s*Selected for refinement\s*:\s*(\d+) cells \(out of (\d+)\)')
+_SELECTED = re.compile(r'^\s*Selected for (?:feature |internal )?refinement\s*:\s*(\d+) cells \(out of (\d+)\)')
 _MARKED = re.compile(r'^\s*Marked for refinement due to (.+?)\s*:\s*(\d+) cells')
 _EDGES = re.compile(r'^\s*Number of edges\s*:\s*(\d+)')
 _MORPH = re.compile(r'^\s*Morph iteration (\d+)')
