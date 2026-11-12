@@ -11,10 +11,13 @@ _REFINEMENT_ITERATION = re.compile(r'^\s*(\w[\w ]*?) refinement iteration (\d+)\
 _SELECTED = re.compile(r'^\s*Selected for (?:feature |internal )?refinement\s*:\s*(\d+) cells \(out of (\d+)\)')
 _MARKED = re.compile(r'^\s*Marked for refinement due to (.+?)\s*:\s*(\d+) cells')
 _EDGES = re.compile(r'^\s*Number of edges\s*:\s*(\d+)')
+_SNAP_TOTAL = re.compile(r'^\s*Snapping to features in (\d+) iterations')
 _MORPH = re.compile(r'^\s*Morph iteration (\d+)')
+_WANTED = re.compile(r'^\s*Wanted displacement\s*:\s*average:([\d.eE+-]+)\s+min:([\d.eE+-]+)\s+max:([\d.eE+-]+)')
 _LAYER_ITERATION = re.compile(r'^\s*Layer addition iteration (\d+)')
 _EXTRUDING = re.compile(r'^\s*Extruding (\d+) out of (\d+) faces \(([\d.]+)%\)')
 _ILLEGAL = re.compile(r'^\s*Detected (\d+) illegal faces')
+_FINISHED = re.compile(r'^\s*Finished meshing (?:without any errors|with (\d+) illegal faces)')
 _EXEC = re.compile(r'^\s*Exec\s*:\s*(\S+)')
 
 
@@ -39,6 +42,14 @@ class LayerSample:
 
 
 @dataclass
+class SnapSample:
+    iteration: int
+    average: float
+    maximum: float
+    wallTime: float
+
+
+@dataclass
 class ProgressState:
     program: str = ''
     phase: str = ''
@@ -47,12 +58,16 @@ class ProgressState:
     totalCells: Optional[int] = None
     edges: Optional[int] = None
     morphIteration: Optional[int] = None
+    morphTotal: Optional[int] = None
     layerIteration: Optional[int] = None
     extrusionPercent: Optional[float] = None
     lastIllegal: Optional[int] = None
+    finished: bool = False
+    finishedIllegal: int = 0
     startTime: float = field(default_factory=time.monotonic)
     samples: List[RefinementSample] = field(default_factory=list)
     layerSamples: List[LayerSample] = field(default_factory=list)
+    snapSamples: List[SnapSample] = field(default_factory=list)
     marked: dict = field(default_factory=dict)
 
 
@@ -105,9 +120,19 @@ class SnappyLogParser:
             state.edges = int(m.group(1))
             return True
 
+        if m := _SNAP_TOTAL.match(line):
+            state.morphTotal = int(m.group(1))
+            return True
+
         if m := _MORPH.match(line):
             state.phase = 'snapping'
             state.morphIteration = int(m.group(1))
+            return True
+
+        if m := _WANTED.match(line):
+            state.snapSamples.append(SnapSample(
+                iteration=state.morphIteration or 0, average=float(m.group(1)),
+                maximum=float(m.group(3)), wallTime=now - state.startTime))
             return True
 
         if m := _LAYER_ITERATION.match(line):
@@ -127,6 +152,11 @@ class SnappyLogParser:
                 index=len(state.layerSamples), iteration=state.layerIteration or 0,
                 extrudedPercent=state.extrusionPercent, illegalFaces=state.lastIllegal,
                 wallTime=now - state.startTime))
+            return True
+
+        if m := _FINISHED.match(line):
+            state.finished = True
+            state.finishedIllegal = int(m.group(1)) if m.group(1) else 0
             return True
 
         return False
