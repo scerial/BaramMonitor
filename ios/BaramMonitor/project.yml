@@ -1,0 +1,44 @@
+name: BaramMonitor
+options:
+  bundleIdPrefix: com.baramonitor
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    TARGETED_DEVICE_FAMILY: "1,2"
+targets:
+  BaramMonitor:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.baramonitor.app
+        CODE_SIGN_STYLE: Automatic
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: BaramMonitor
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIBackgroundModes:
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.baramonitor.app.refresh
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: BaramMonitor connects to your PC to show meshing progress and alerts.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.baramonitor.pair
+            CFBundleURLSchemes:
+              - baramonitor

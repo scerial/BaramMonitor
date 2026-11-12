@@ -41,6 +41,7 @@ from .naviagtion_view import NavigationView
 from .rendering_tool import RenderingTool
 from .console_view import ConsoleView
 from .progress_view import ProgressView
+from .mobile_bridge import MobileBridge
 from .resource_view import ResourceView
 from .mesh_manager import MeshManager
 from .step_manager import StepManager
@@ -184,6 +185,12 @@ class MainWindow(QMainWindow):
         self._ui.menuView.addAction(self._progressView.toggleViewAction())
         self._ui.menuView.addAction(self._resourceView.toggleViewAction())
         self._consoleView.widget().lineAppended.connect(self._progressView.widget().feed)
+
+        resourceWidget = self._resourceView.widget()
+        self._mobileBridge = MobileBridge(resourceWidget.sampler, self._progressView.widget().snapshot, self)
+        resourceWidget.setMobileBridge(self._mobileBridge)
+        resourceWidget.configChanged.connect(self._mobileBridge.apply)
+        self._mobileBridge.apply(resourceWidget.sampler.config)
 
         self._ui.actionNew.triggered.connect(self._actionNew)
         self._ui.actionOpen.triggered.connect(self._actionOpen)

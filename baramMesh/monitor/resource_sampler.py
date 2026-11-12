@@ -45,6 +45,10 @@ class ResourceConfig:
     baselineWatts: float = 60.0
     idleWatts: float = 25.0
     ohmDllPath: str = ''
+    mobileEnabled: bool = False
+    mobilePort: int = 8765
+    mobileBind: str = 'tailscale'
+    mobileToken: str = ''
     lhmUrl: str = 'http://localhost:8085/data.json'
     solverBinPath: Optional[str] = None
 

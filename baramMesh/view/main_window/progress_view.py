@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 from PySide6QtAds import CDockWidget
 
+from baramMesh.monitor.progress_snapshot import progressHealth, progressSnapshot
 from baramMesh.openfoam.log_parser import SnappyLogParser
 
 
@@ -25,9 +26,6 @@ CHIP_COLORS = {
     'done': '#009E73',
     'warn': '#D55E00'
 }
-STALL_WINDOW = 10
-STALL_TOLERANCE = 0.5
-STALL_CEILING = 90
 
 
 def _formatDuration(seconds):
@@ -355,38 +353,10 @@ class ProgressWidget(QWidget):
         self._tilesFrame.setVisible(bool(items))
 
     def _health(self, state, mode):
-        if state.finished:
-            if state.finishedIllegal == 0:
-                return 'done', 'Finished, no errors'
+        return progressHealth(state, mode)
 
-            return 'warn', f'Finished with {state.finishedIllegal:,} illegal faces'
-
-        if mode == 'layers':
-            samples = state.layerSamples
-            last = samples[-1]
-            if last.illegalFaces == 0 and last.extrudedPercent >= 99:
-                return 'done', 'Layers complete'
-
-            if (len(samples) >= STALL_WINDOW and last.extrudedPercent < STALL_CEILING
-                    and abs(last.extrudedPercent - samples[-STALL_WINDOW].extrudedPercent) < STALL_TOLERANCE):
-                return 'warn', f'Stalled at {last.extrudedPercent:.0f}% extruded'
-
-            return 'running', 'Adding layers'
-
-        if mode == 'snap':
-            return 'running', 'Snapping'
-
-        if state.samples:
-            last = state.samples[-1]
-            if last.selected == 0:
-                return 'done', f'{_phaseGroup(last.label)} converged'
-
-            return 'running', f'Refining ({_phaseGroup(last.label).lower()})'
-
-        if state.phase:
-            return 'running', state.phase.capitalize()
-
-        return 'idle', 'Waiting for output'
+    def snapshot(self):
+        return progressSnapshot(self._parser.state)
 
     def _updateChip(self, state, mode):
         key, text = self._health(state, mode)

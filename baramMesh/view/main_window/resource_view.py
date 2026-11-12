@@ -2,19 +2,21 @@
 # -*- coding: utf-8 -*-
 
 import math
+import secrets
 from dataclasses import fields
 from urllib.parse import urlparse
 
 import pyqtgraph as pg
-from PySide6.QtCore import QCoreApplication, QEvent, QMargins, QPointF, QRectF, QSettings, Qt, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QMargins, QPointF, QRectF, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen
-from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout,
-                               QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
+                               QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+                               QPushButton, QSpinBox, QVBoxLayout, QWidget)
 from PySide6QtAds import CDockWidget
 
 from libbaram.app_path import APP_PATH
 from baramMesh.monitor.resource_sampler import ResourceConfig, ResourceSampler
+from baramMesh.view.main_window.mobile_bridge import BIND_MODES, PairingDialog
 
 
 NORMAL = '#0072B2'
@@ -51,9 +53,15 @@ def loadConfig() -> ResourceConfig:
             continue
 
         try:
-            setattr(config, f.name, type(getattr(config, f.name))(value))
+            current = getattr(config, f.name)
+            converted = str(value).lower() in ('true', '1') if isinstance(current, bool) else type(current)(value)
+            setattr(config, f.name, converted)
         except (TypeError, ValueError):
             pass
+
+    if not config.mobileToken:
+        config.mobileToken = secrets.token_urlsafe(24)
+        settings.setValue('mobileToken', config.mobileToken)
 
     return config
 
@@ -225,10 +233,11 @@ class _MetricCard(QFrame):
 
 
 class ResourceSettingsDialog(QDialog):
-    def __init__(self, config: ResourceConfig, parent=None):
+    def __init__(self, config: ResourceConfig, parent=None, bridge=None):
         super().__init__(parent)
         self.setWindowTitle('Resource monitor settings')
         self._solverBinPath = config.solverBinPath
+        self._token = config.mobileToken
 
         self._tdp = self._spin(1, 1000, ' W')
         self._ppt = self._spin(1, 1500, ' W')
@@ -248,6 +257,24 @@ class ResourceSettingsDialog(QDialog):
         dllRow.addWidget(browse)
         self._warn.valueChanged.connect(self._critical.setMinimum)
 
+        self._mobileEnabled = QCheckBox('Share live status with the phone app')
+        self._mobilePort = QSpinBox()
+        self._mobilePort.setRange(1024, 65535)
+        self._mobileBind = QComboBox()
+        for key, label in BIND_MODES:
+            self._mobileBind.addItem(label, key)
+
+        status = QLabel(bridge.statusText() if bridge is not None else '')
+        status.setWordWrap(True)
+        pair = QPushButton('Pair a phone…')
+        pair.clicked.connect(self._pair)
+        newToken = QPushButton('New access token')
+        newToken.clicked.connect(self._newToken)
+        mobileButtons = QHBoxLayout()
+        mobileButtons.addWidget(pair)
+        mobileButtons.addWidget(newToken)
+        mobileButtons.addStretch(1)
+
         form = QFormLayout()
         form.addRow('CPU TDP', self._tdp)
         form.addRow('CPU power limit (PPT)', self._ppt)
@@ -258,6 +285,11 @@ class ResourceSettingsDialog(QDialog):
         form.addRow('CPU idle power (estimate)', self._idle)
         form.addRow('OpenHardwareMonitorLib.dll', dllRow)
         form.addRow('Hardware monitor URL', self._url)
+        form.addRow(self._mobileEnabled)
+        form.addRow('Phone app port', self._mobilePort)
+        form.addRow('Phone app network', self._mobileBind)
+        form.addRow(status)
+        form.addRow(mobileButtons)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -290,7 +322,16 @@ class ResourceSettingsDialog(QDialog):
         if path:
             self._dll.setText(path)
 
+    def _pair(self):
+        PairingDialog(self._mobileBind.currentData(), self._mobilePort.value(), self._token, self).exec()
+
+    def _newToken(self):
+        self._token = secrets.token_urlsafe(24)
+
     def _load(self, config):
+        self._mobileEnabled.setChecked(config.mobileEnabled)
+        self._mobilePort.setValue(config.mobilePort)
+        self._mobileBind.setCurrentIndex(max(0, self._mobileBind.findData(config.mobileBind)))
         self._dll.setText(config.ohmDllPath)
         self._tdp.setValue(config.tdpWatts)
         self._ppt.setValue(config.pptWatts)
@@ -307,12 +348,17 @@ class ResourceSettingsDialog(QDialog):
             tempCritical=max(self._critical.value(), self._warn.value()), psuWatts=self._psu.value(),
             baselineWatts=self._baseline.value(), idleWatts=self._idle.value(),
             ohmDllPath=self._dll.text().strip(), lhmUrl=self._url.text().strip(),
+            mobileEnabled=self._mobileEnabled.isChecked(), mobilePort=self._mobilePort.value(),
+            mobileBind=self._mobileBind.currentData(), mobileToken=self._token,
             solverBinPath=self._solverBinPath)
 
 
 class ResourceWidget(QWidget):
+    configChanged = Signal(object)
+
     def __init__(self, sampler: ResourceSampler = None):
         super().__init__()
+        self._bridge = None
         palette = self.palette()
         background = palette.color(QPalette.ColorRole.Base)
         text = palette.color(QPalette.ColorRole.Text)
@@ -373,12 +419,20 @@ class ResourceWidget(QWidget):
         self._timer.timeout.connect(self.refresh)
         self._timer.start()
 
+    @property
+    def sampler(self) -> ResourceSampler:
+        return self._sampler
+
+    def setMobileBridge(self, bridge):
+        self._bridge = bridge
+
     def _openSettings(self):
-        dialog = ResourceSettingsDialog(self._sampler.config, self)
+        dialog = ResourceSettingsDialog(self._sampler.config, self, self._bridge)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             config = dialog.config()
             saveConfig(config)
             self._sampler.setConfig(config)
+            self.configChanged.emit(config)
             self.refresh()
 
     def refresh(self):
