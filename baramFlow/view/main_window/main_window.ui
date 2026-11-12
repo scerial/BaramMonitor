@@ -1,0 +1,414 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1280</width>
+    <height>768</height>
+   </rect>
+  </property>
+  <property name="sizePolicy">
+   <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+    <horstretch>0</horstretch>
+    <verstretch>0</verstretch>
+   </sizepolicy>
+  </property>
+  <property name="windowTitle">
+   <string>BaramFlow</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <property name="sizePolicy">
+    <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+     <horstretch>0</horstretch>
+     <verstretch>0</verstretch>
+    </sizepolicy>
+   </property>
+   <layout class="QHBoxLayout" name="horizontalLayout_2">
+    <item>
+     <widget class="QSplitter" name="splitter">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>16777215</width>
+        <height>16777215</height>
+       </size>
+      </property>
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <property name="childrenCollapsible">
+       <bool>true</bool>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QSplitter::handle { background-color: transparent; }
+QSplitter::handle:hover { background-color: palette(highlight); }</string>
+      </property>
+      <property name="handleWidth">
+       <number>4</number>
+      </property>
+      <widget class="QTreeWidget" name="navigatorView">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>200</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">QTreeWidget#navigatorView { padding-right: 8px; }</string>
+       </property>
+       <attribute name="headerVisible">
+        <bool>false</bool>
+       </attribute>
+       <column>
+        <property name="text">
+         <string notr="true">1</string>
+        </property>
+       </column>
+      </widget>
+      <widget class="QStackedWidget" name="formView">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>400</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="currentIndex">
+        <number>0</number>
+       </property>
+       <widget class="QWidget" name="emptyPage">
+        <layout class="QVBoxLayout" name="verticalLayout">
+         <item>
+          <widget class="QLabel" name="label">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="listPage">
+        <layout class="QVBoxLayout" name="verticalLayout_2">
+         <item>
+          <widget class="QLabel" name="title">
+           <property name="text">
+            <string>TextLabel</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QListWidget" name="editList">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>200</height>
+            </size>
+           </property>
+           <property name="modelColumn">
+            <number>0</number>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QWidget" name="widget" native="true">
+           <layout class="QHBoxLayout" name="horizontalLayout">
+            <item>
+             <spacer name="horizontalSpacer">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>120</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QPushButton" name="edit">
+              <property name="locale">
+               <locale language="English" country="UnitedStates"/>
+              </property>
+              <property name="text">
+               <string>Edit</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <spacer name="verticalSpacer">
+           <property name="orientation">
+            <enum>Qt::Vertical</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>20</width>
+             <height>219</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1280</width>
+     <height>22</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>&amp;File</string>
+    </property>
+    <widget class="QMenu" name="menuLoadMesh">
+     <property name="title">
+      <string>&amp;Load Mesh</string>
+     </property>
+     <addaction name="actionOpenFoam"/>
+     <addaction name="actionMultiplePolyMesh"/>
+     <addaction name="actionFluent"/>
+     <addaction name="actionStarCCM"/>
+     <addaction name="actionGmsh"/>
+     <addaction name="actionIdeas"/>
+     <addaction name="actionNasaPlot3d"/>
+    </widget>
+    <addaction name="actionSave"/>
+    <addaction name="actionSaveAs"/>
+    <addaction name="menuLoadMesh"/>
+    <addaction name="actionCloseProject"/>
+    <addaction name="separator"/>
+    <addaction name="actionExit"/>
+   </widget>
+   <widget class="QMenu" name="menuView">
+    <property name="title">
+     <string>&amp;View</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuSetting">
+    <property name="title">
+     <string>&amp;Settings</string>
+    </property>
+    <addaction name="actionScale"/>
+    <addaction name="actionLanguage"/>
+    <addaction name="actionParaViewSetting"/>
+   </widget>
+   <widget class="QMenu" name="menuMesh">
+    <property name="title">
+     <string>&amp;Mesh</string>
+    </property>
+    <addaction name="actionMeshInfo"/>
+    <addaction name="actionMeshScale"/>
+    <addaction name="actionMeshTranslate"/>
+    <addaction name="actionMeshRotate"/>
+   </widget>
+   <widget class="QMenu" name="menuHelp">
+    <property name="title">
+     <string>&amp;Help</string>
+    </property>
+    <addaction name="actionAbout"/>
+    <addaction name="actionTutorials"/>
+    <addaction name="separator"/>
+    <addaction name="actionPrivacySettings"/>
+   </widget>
+   <widget class="QMenu" name="menuParallel">
+    <property name="title">
+     <string>&amp;Parallel</string>
+    </property>
+    <addaction name="actionParallelEnvironment"/>
+   </widget>
+   <widget class="QMenu" name="menuExternal_Tools">
+    <property name="title">
+     <string>External &amp;Tools</string>
+    </property>
+    <addaction name="actionParaView"/>
+   </widget>
+   <addaction name="menuFile"/>
+   <addaction name="menuMesh"/>
+   <addaction name="menuView"/>
+   <addaction name="menuParallel"/>
+   <addaction name="menuSetting"/>
+   <addaction name="menuExternal_Tools"/>
+   <addaction name="menuHelp"/>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+  <action name="actionCloseProject">
+   <property name="text">
+    <string>&amp;Close Project</string>
+   </property>
+  </action>
+  <action name="actionSave">
+   <property name="text">
+    <string>&amp;Save</string>
+   </property>
+  </action>
+  <action name="actionSaveAs">
+   <property name="text">
+    <string>Save &amp;As</string>
+   </property>
+  </action>
+  <action name="actionPreference">
+   <property name="text">
+    <string>Preference</string>
+   </property>
+  </action>
+  <action name="actionExit">
+   <property name="text">
+    <string>&amp;Exit</string>
+   </property>
+  </action>
+  <action name="actionScale">
+   <property name="text">
+    <string>&amp;Scale</string>
+   </property>
+  </action>
+  <action name="actionLanguage">
+   <property name="text">
+    <string>&amp;Language</string>
+   </property>
+  </action>
+  <action name="actionMeshScale">
+   <property name="text">
+    <string>&amp;Scale</string>
+   </property>
+  </action>
+  <action name="actionMeshTranslate">
+   <property name="text">
+    <string>&amp;Translate</string>
+   </property>
+  </action>
+  <action name="actionMeshRotate">
+   <property name="text">
+    <string>&amp;Rotate</string>
+   </property>
+  </action>
+  <action name="actionOpenFoam">
+   <property name="text">
+    <string>OpenFOAM</string>
+   </property>
+  </action>
+  <action name="actionFluent">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Fluent (ASCII)</string>
+   </property>
+  </action>
+  <action name="actionStarCCM">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>StarCCM+</string>
+   </property>
+   <property name="visible">
+    <bool>true</bool>
+   </property>
+  </action>
+  <action name="actionGmsh">
+   <property name="text">
+    <string>Gmsh (ASCII)</string>
+   </property>
+  </action>
+  <action name="actionIdeas">
+   <property name="text">
+    <string>I-deas Universal (ASCII)</string>
+   </property>
+  </action>
+  <action name="actionNasaPlot3d">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>PLOT3D GRID (ASCII)</string>
+   </property>
+  </action>
+  <action name="actionParaView">
+   <property name="text">
+    <string>&amp;ParaView</string>
+   </property>
+  </action>
+  <action name="actionAbout">
+   <property name="text">
+    <string>About</string>
+   </property>
+  </action>
+  <action name="actionPrivacySettings">
+   <property name="text">
+    <string>&amp;Privacy Settings...</string>
+   </property>
+  </action>
+  <action name="actionParallelEnvironment">
+   <property name="text">
+    <string>&amp;Environment</string>
+   </property>
+  </action>
+  <action name="actionParaViewSetting">
+   <property name="text">
+    <string>&amp;ParaView</string>
+   </property>
+  </action>
+  <action name="actionMeshInfo">
+   <property name="text">
+    <string>&amp;Info.</string>
+   </property>
+   <property name="toolTip">
+    <string>Mesh Info.</string>
+   </property>
+  </action>
+  <action name="actionMultiplePolyMesh">
+   <property name="text">
+    <string>Multiple polyMesh</string>
+   </property>
+  </action>
+  <action name="actionTutorials">
+   <property name="text">
+    <string>Tutorials</string>
+   </property>
+  </action>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

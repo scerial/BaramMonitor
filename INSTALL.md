@@ -1,0 +1,1 @@
+Please see [online Installation page](https://baramcfd.org/docs/installation/)

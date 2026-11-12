@@ -1,0 +1,85 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import qasync
+
+
+from widgets.async_message_box import AsyncMessageBox
+from widgets.selector_dialog import SelectorDialog
+
+from baramFlow.coredb import coredb
+from baramFlow.coredb.boundary_db import BoundaryDB, BoundaryType
+from baramFlow.coredb.libdb import ValueException, dbErrorToMessage
+from .porous_jump_dialog_ui import Ui_PorousJumpDialog
+from .coupled_boundary_condition_dialog import CoupledBoundaryConditionDialog
+
+
+class PorousJumpDialog(CoupledBoundaryConditionDialog):
+    BOUNDARY_TYPE = BoundaryType.POROUS_JUMP
+    RELATIVE_XPATH = '/porousJump'
+
+    def __init__(self, parent, bcid):
+        super().__init__(parent, bcid)
+        self._ui = Ui_PorousJumpDialog()
+        self._ui.setupUi(self)
+
+        self._xpath = BoundaryDB.getXPath(bcid)
+        self._coupledBoundary = None
+        self._dialog = None
+
+        self._connectSignalsSlots()
+        self._load()
+
+    @qasync.asyncSlot()
+    async def accept(self):
+        if not self._coupledBoundary:
+            await AsyncMessageBox().information(self, self.tr('Input Error'), self.tr('Select Coupled Boundary'))
+            return
+
+        try:
+            with coredb.CoreDB() as db:
+                self._changeCoupledBoundary(db, self._coupledBoundary, self.BOUNDARY_TYPE)
+
+                self._writeConditions(db, self._xpath + self.RELATIVE_XPATH)
+                self._writeConditions(db, BoundaryDB.getXPath(self._coupledBoundary) + self.RELATIVE_XPATH)
+
+                super().accept()
+        except ValueException as ve:
+            await AsyncMessageBox().information(self, self.tr('Input Error'), dbErrorToMessage(ve))
+
+    def _connectSignalsSlots(self):
+        self._ui.select.clicked.connect(self._selectCoupledBoundary)
+
+    def _load(self):
+        db = coredb.CoreDB()
+        path = self._xpath + self.RELATIVE_XPATH
+
+        self._ui.darcyCoefficient.setText(db.getValue(path + '/darcyCoefficient'))
+        self._ui.inertialCoefficient.setText(db.getValue(path + '/inertialCoefficient'))
+        self._ui.porousMedieThickness.setText(db.getValue(path + '/porousMediaThickness'))
+        self._setCoupledBoundary(db.getValue(self._xpath + '/coupledBoundary'))
+
+    def _selectCoupledBoundary(self):
+        if not self._dialog:
+            self._dialog = SelectorDialog(self, self.tr("Select Boundary"), self.tr("Select Boundary"),
+                                          BoundaryDB.getBoundarySelectorItemsForCoupling(self._bcid))
+            self._dialog.accepted.connect(self._coupledBoundaryAccepted)
+
+        self._dialog.open()
+
+    def _coupledBoundaryAccepted(self):
+        self._setCoupledBoundary(str(self._dialog.selectedItem()))
+
+    def _setCoupledBoundary(self, bcid):
+        if bcid != '0':
+            self._coupledBoundary = str(bcid)
+            self._ui.coupledBoundary.setText(BoundaryDB.getBoundaryName(bcid))
+        else:
+            self._coupledBoundary = 0
+            self._ui.coupledBoundary.setText('')
+
+    def _writeConditions(self, db, xpath):
+        db.setValue(xpath + '/darcyCoefficient', self._ui.darcyCoefficient.text(), self.tr('Darcy Coefficient'))
+        db.setValue(xpath + '/inertialCoefficient', self._ui.inertialCoefficient.text(), self.tr('Inertial Coefficient'))
+        db.setValue(xpath + '/porousMediaThickness',
+                    self._ui.porousMedieThickness.text(), self.tr('Porous Media Thickness'))

@@ -1,0 +1,241 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import asyncio
+from enum import Enum, auto
+import re
+from io import StringIO
+
+from PySide6.QtCore import QObject
+from vtkmodules.vtkCommonCore import VTK_POLY_DATA
+from vtkmodules.vtkFiltersCore import vtkFeatureEdges, vtkPolyDataNormals
+from vtkmodules.vtkFiltersGeometry import vtkGeometryFilter
+from vtkmodules.vtkFiltersParallel import vtkIntegrateAttributes
+from vtkmodules.vtkRenderingCore import vtkActor, vtkPolyDataMapper
+from vtkmodules.vtkRenderingLOD import vtkQuadricLODActor
+
+from baramFlow.app import app
+from baramFlow.coredb import coredb
+from baramFlow.openfoam import parallel
+from baramFlow.openfoam.file_system import FileSystem
+from baramFlow.openfoam.system.fv_schemes import FvSchemes
+from baramFlow.openfoam.system.fv_solution import FvSolution
+from libbaram.exception import CanceledException
+from libbaram.run import RunParallelUtility
+
+
+class DisplayMode(Enum):
+    DISPLAY_MODE_FEATURE        = 0
+    DISPLAY_MODE_SURFACE        = auto()
+    DISPLAY_MODE_SURFACE_EDGE   = auto()
+    DISPLAY_MODE_WIREFRAME      = auto()
+
+
+def getActor(dataset):
+    gFilter = vtkGeometryFilter()
+    gFilter.SetInputData(dataset)
+    gFilter.Update()
+
+    mapper = vtkPolyDataMapper()
+    mapper.SetInputData(gFilter.GetOutput())
+    mapper.ScalarVisibilityOff()
+
+    actor = vtkQuadricLODActor()    # vtkActor()
+    actor.SetMapper(mapper)
+
+    return actor
+
+
+def getFeatureActor(dataset):
+    edges = vtkFeatureEdges()
+    edges.SetInputData(dataset)
+    edges.Update()
+
+    mapper = vtkPolyDataMapper()
+    mapper.SetInputData(edges.GetOutput())
+    mapper.ScalarVisibilityOff()
+
+    actor = vtkActor()
+    actor.SetMapper(mapper)
+
+    return actor
+
+
+class ActorInfo:
+    def __init__(self, dataSet):
+        self._visibility = True
+        self._dataSet = dataSet
+        self._face = None
+        self._feature = None
+
+        self._face = getActor(dataSet)
+        if dataSet.GetDataObjectType() == VTK_POLY_DATA:
+            self._feature = getFeatureActor(dataSet)
+
+    @property
+    def face(self):
+        return self._face
+
+    @property
+    def feature(self):
+        return self._feature
+
+    @property
+    def dataSet(self):
+        return self._dataSet
+
+    def actor(self, featureMode):
+        return self._feature if featureMode else self._face
+
+    @property
+    def visibility(self):
+        return self._visibility
+
+    @visibility.setter
+    def visibility(self, visibility):
+        self._visibility = visibility
+
+    def getZoneAverageDirection(self):
+        if self._dataSet.GetDataObjectType() == VTK_POLY_DATA:
+            normals = vtkPolyDataNormals()
+            normals.SetInputData(self._dataSet)
+            normals.ComputeCellNormalsOn()
+            normals.ComputePointNormalsOff()
+            normals.Update()
+
+            integrate = vtkIntegrateAttributes()
+            integrate.SetInputData(normals.GetOutput())
+            integrate.SetDivideAllCellDataByVolume(True)
+            integrate.Update()
+
+            result = integrate.GetOutput()
+
+            return  result.GetCellData().GetArray("Normals").GetTuple3(0)
+
+
+class RenderingModel(QObject):
+    def __init__(self):
+        super().__init__()
+
+        self._view = app.renderingView
+        self._view.viewClosed.connect(self._viewClosed)
+
+    def _viewClosed(self):
+        self._view = None
+
+
+class MeshModel(RenderingModel):
+    def __init__(self):
+        super().__init__()
+
+        self._actorInfos = {}
+        self._bounds = None
+        self._activation = False
+
+        self._numCells = None
+        self._smallestCellVolume = None
+        self._largestCellVolume = None
+
+    def activate(self):
+        if not self._activation and self._view:
+            self._view.fitCamera()
+            self._activation = True
+
+    def setActorInfo(self, id_, actorInfo):
+        self._actorInfos[id_] = actorInfo
+
+    def actorInfo(self, id_):
+        if id_ in self._actorInfos:
+            return self._actorInfos[id_]
+
+        return None
+
+    async def getBounds(self):
+        if not self._bounds:
+            self._bounds = [
+                min([a.face.GetBounds()[0] for a in self._actorInfos.values()]),
+                max([a.face.GetBounds()[1] for a in self._actorInfos.values()]),
+                min([a.face.GetBounds()[2] for a in self._actorInfos.values()]),
+                max([a.face.GetBounds()[3] for a in self._actorInfos.values()]),
+                min([a.face.GetBounds()[4] for a in self._actorInfos.values()]),
+                max([a.face.GetBounds()[5] for a in self._actorInfos.values()])
+            ]
+
+        return self._bounds
+
+    async def getNumberOfCells(self):
+        if self._numCells is None:
+            await self._checkMesh()
+
+        return self._numCells
+
+    async def getSmallestCellVolume(self):
+        if self._smallestCellVolume is None:
+            await self._checkMesh()
+
+        return self._smallestCellVolume
+
+    async def getLargestCellVolume(self):
+        if self._largestCellVolume is None:
+            await self._checkMesh()
+
+        return self._largestCellVolume
+
+    async def _checkMesh(self):
+        def _stdout(output):
+            ioStream.write(output+'\n')
+
+        ioStream = StringIO()
+        cm = None
+
+        # "checkMesh" requires fvSchemes and fvSolution
+        # They are not available right after importing Multi-Region mesh files
+        regions = coredb.CoreDB().getRegions()
+        for rname in regions:
+            FvSchemes(rname).build().write()
+            FvSolution(rname).build().write()
+
+        try:
+            caseRoot = FileSystem.caseRoot()
+            cm = RunParallelUtility('checkMesh', '-allRegions', '-time', '0', '-case', caseRoot,
+                                    cwd=caseRoot, parallel=parallel.getEnvironment())
+            cm.output.connect(_stdout)
+            await cm.start()
+            await cm.wait()
+
+            numCells = 0
+            smallestVolume = 1000000000  # 1km^3, sufficiently large value for smallestVolume
+            largestVolume = 0  # sufficiently small value for largestVolume
+
+            numCellPattern = r'^\s+cells:\s+(?P<numCells>[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)'
+            volumePattern = r'Min volume = (?P<minVol>[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)\. Max volume = (?P<maxVol>[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)\.'
+
+            ioStream.seek(0)
+            for line in ioStream.readlines():
+                m = re.search(numCellPattern, line)
+                if m is not None:
+                    numCells += int(m.group('numCells'))
+                    continue
+
+                m = re.search(volumePattern, line)
+                if m is not None:
+                    minVol = float(m.group('minVol'))
+                    maxVol = float(m.group('maxVol'))
+                    if minVol < smallestVolume:
+                        smallestVolume = minVol
+                    if maxVol > largestVolume:
+                        largestVolume = maxVol
+
+            ioStream.close()
+
+            self._numCells = numCells
+            self._largestCellVolume = largestVolume
+            self._smallestCellVolume = smallestVolume
+
+        except CanceledException:
+            pass
+
+        except asyncio.CancelledError:
+            if cm:
+                cm.cancel()
+            else:
+                raise CanceledException

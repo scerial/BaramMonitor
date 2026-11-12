@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pointMonitor xmlns="http://www.baramcfd.org/baram">
+    <uuid/>
+    <name>default</name>
+    <showChart>true</showChart>
+    <writeInterval>1</writeInterval>
+    <fieldCategory>basic</fieldCategory>
+    <fieldCodeName>pressure</fieldCodeName>
+    <fieldComponent>1</fieldComponent>
+    <interval>1</interval>
+    <coordinate>
+        <x>0</x>
+        <y>0</y>
+        <z>0</z>
+    </coordinate>
+    <snapOntoBoundary>false</snapOntoBoundary>
+    <boundary>0</boundary>
+    <region/>
+    <functionName/>
+</pointMonitor>

@@ -1,0 +1,114 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+from PySide6.QtWidgets import QGroupBox, QFormLayout
+
+from widgets.async_message_box import AsyncMessageBox
+from widgets.pfloat_line_edit import PFloatLineEdit
+
+from baramFlow.base.boundary.boundary import SpecieValue, SpecieRatios
+from baramFlow.base.material.material import MaterialType
+from baramFlow.coredb import coredb
+from baramFlow.coredb.coredb_writer import boolToDBText
+from baramFlow.coredb.material_db import MaterialDB
+
+
+class SpeciesWidget(QGroupBox):
+    def __init__(self, mid: str, optional=False):
+        super().__init__()
+
+        self._mid: str = mid
+
+        self._on: bool = False
+        self._layout: QFormLayout
+        self._species: dict[str, tuple[str, PFloatLineEdit]] = {}
+        self._optional: bool = optional
+
+        self.setTitle(MaterialDB.getName(self._mid))
+        self.setCheckable(self._optional)
+        self.setChecked(False)
+
+        if MaterialDB.getType(self._mid) == MaterialType.MIXTURE:
+            self._on = True
+            self._layout = QFormLayout(self)
+            for mid, name in MaterialDB.getSpecies(mid).items():
+                editor = PFloatLineEdit()
+                self._layout.addRow(name, editor)
+                self._species[mid] = (name, editor)
+
+    def mid(self):
+        return self._mid
+
+    def species(self):
+        return self._species.keys()
+
+    def data(self):
+        if not self._on:
+            return None
+
+        if self._optional and not self.isChecked():
+            return None
+
+        totalRatio = 0
+        ratios = []
+        for mid, row in self._species.items():
+            fieldName, editor = row
+            value = editor.pFloat(self.tr('Speicie '+ fieldName))
+            ratios.append(SpecieValue(mid, value))
+            totalRatio += float(value)
+
+        if totalRatio == 0:
+            raise ValueError(
+                self.tr(
+                    'The sum of the composition ratios of the mixture "{}" is 0.').format(MaterialDB.getName(self._mid)))
+
+        return SpecieRatios(mid=self._mid, ratios=ratios)
+
+    def on(self):
+        return self._on
+
+    def load(self, speciesXPath):
+        if self._on:
+            db = coredb.CoreDB()
+            xpath = f'{speciesXPath}/mixture[mid="{self._mid}"]'
+            if db.exists(xpath):
+                if self._optional:
+                    self.setChecked(db.getAttribute(xpath, 'disabled') == 'false')
+
+                for mid in self._species:
+                    _, editor = self._species[mid]
+                    editor.setText(db.getValue(f'{xpath}/specie[mid="{mid}"]/value'))
+            else:
+                self.setChecked(False)
+                for mid in self._species:
+                    _, editor = self._species[mid]
+                    editor.setText('0')
+
+    async def appendToWriter(self, writer, speciesXPath):
+        if self._on:
+            xpath = f'{speciesXPath}/mixture[mid="{self._mid}"]'
+            if self._optional:
+                writer.setAttribute(xpath, 'disabled', boolToDBText(not self.isChecked()))
+                if not self.isChecked():
+                    return True
+
+            totalRatio = 0
+            for mid, row in self._species.items():
+                try:
+                    fieldName, editor = row
+                    value = editor.pFloat(self.tr('Speicie '+ fieldName))
+                    writer.append(f'{xpath}/specie[mid="{mid}"]/value', str(value), fieldName)
+                    totalRatio += float(value)
+                except ValueError:
+                    await AsyncMessageBox().information(
+                        self, self.tr('Input Error'), self.tr('{} must be a float').format(row[0]))
+                    return False
+
+            if totalRatio == 0:
+                await AsyncMessageBox().information(
+                    self, self.tr('Input Error'),
+                    self.tr('The sum of the composition ratios of the mixture "{}" is 0.').format(
+                        MaterialDB.getName(self._mid)))
+                return False
+
+        return True

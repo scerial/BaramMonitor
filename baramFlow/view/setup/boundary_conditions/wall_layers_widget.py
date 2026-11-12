@@ -1,0 +1,168 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+from enum import IntEnum, auto
+
+from PySide6.QtCore import QObject, Signal
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QLabel, QGroupBox, QWidget, QVBoxLayout, QGridLayout
+
+from widgets.async_message_box import AsyncMessageBox
+from widgets.flat_push_button import FlatPushButton
+from widgets.typed_edit import FloatEdit
+
+from baramFlow.base.boundary.boundary import TemperatureLayers, TemperatureLayer
+from baramFlow.coredb import coredb
+from baramFlow.view.setup.boundary_conditions.wall_layers_widget_ui import Ui_WallLayersWidget
+
+
+class Column(IntEnum):
+    NO                      = 0
+    THICKNESS               = auto()
+    THERMAL_CONDUCTIVITY    = auto()
+    REMOVE                  = auto()
+
+
+class WallLayerItem(QObject):
+    removeClicked = Signal()
+
+    _removeIcon = QIcon(':/icons/trash-outline.svg')
+
+    def __init__(self, no, thickness: str, thermalConductivity: str):
+        super().__init__()
+
+        self._widgets: list[QWidget]
+        self._hidden: bool = False
+
+        if no > 1:
+            removeButton = FlatPushButton(self._removeIcon, '')
+            removeButton.clicked.connect(self.removeClicked)
+        else:
+            removeButton = QLabel()
+
+        self._widgets = [
+            QLabel(str(no)),
+            FloatEdit(thickness),
+            FloatEdit(thermalConductivity),
+            removeButton]
+
+    def thickness(self):
+        return self.widget(Column.THICKNESS).text()
+
+    def thermalConductivity(self):
+        return self.widget(Column.THERMAL_CONDUCTIVITY).text()
+
+    def widget(self, column):
+        return self._widgets[column]
+
+    def no(self):
+        return int(self._widgets[Column.NO].text())
+
+    def isHidden(self):
+        return self._hidden
+
+    def hide(self):
+        self._hidden = True
+        for widget in self._widgets:
+            widget.hide()
+
+    def decreaseNO(self):
+        if not self._hidden:
+            self._widgets[Column.NO].setText(str(self.no() - 1))
+
+
+class WallLayersWidget(QWidget):
+    _removeIcon = QIcon(':/icons/trash-outline.svg')
+
+    def __init__(self):
+        super().__init__()
+        self._ui = Ui_WallLayersWidget()
+        self._ui.setupUi(self)
+
+        self._layout: QGridLayout = self._ui.wallLayersTable.layout()
+
+        self._rows: list[WallLayerItem] = []
+        
+        self._connectSignalsSlots()
+
+    def data(self):
+        return [TemperatureLayer(thickness=row.thickness(), thermalConductivity=row.thermalConductivity())
+                for row in self._rows if not row.isHidden()]
+
+    def addRow(self, thickness='', thermalConductivity=''):
+        index = len(self._rows)
+        lastNO = 0
+        for i in range(index - 1, -1, -1):
+            if not self._rows[i].isHidden():
+                lastNO = self._rows[i].no()
+                break
+
+        item = WallLayerItem(lastNO + 1, thickness, thermalConductivity)
+        item.removeClicked.connect(lambda: self._removeRow(index))
+        self._rows.append(item)
+
+        row = index + 1    # header row
+        for c in range(self._layout.columnCount()):
+            self._layout.addWidget(item.widget(c), row, c)
+
+    def load(self, xpath):
+        db = coredb.CoreDB()
+
+        thicknessLayers = db.getValue(xpath + '/thicknessLayers').split()
+        thermalConductivityLayers = db.getValue(xpath + '/thermalConductivityLayers').split()
+
+        for i in range(len(thicknessLayers)):
+            self.addRow(thicknessLayers[i], thermalConductivityLayers[i])
+
+    async def updateDB(self, db, xpath):
+        thicknessLayers = ''
+        thermalConductivityLayers = ''
+
+        try:
+            for row in self._rows:
+                if not row.isHidden():
+                    thicknessLayers += row.thickness() + ' '
+                    thermalConductivityLayers += row.thermalConductivity() + ' '
+        except ValueError as e:
+            await AsyncMessageBox().information(self, self.tr('Input Error'), str(e))
+            raise coredb.Cancel
+
+        db.setValue(xpath + '/thicknessLayers', thicknessLayers, self.tr('Thickness'))
+        db.setValue(xpath + '/thermalConductivityLayers', thermalConductivityLayers, self.tr('Thermal Conductivity'))
+
+    def _connectSignalsSlots(self):
+        self._ui.addWallLayer.clicked.connect(lambda: self.addRow('0.001', '10'))
+
+    def _removeRow(self, index):
+        self._rows[index].hide()
+        for i in range(index + 1, len(self._rows)):
+            self._rows[i].decreaseNO()
+
+
+class WallLayersBox(QGroupBox):
+    def __init__(self, parent):
+        super().__init__(parent)
+
+        self._layers = WallLayersWidget()
+
+        layout = QVBoxLayout()
+        layout.addWidget(self._layers)
+        self.setLayout(layout)
+
+    def isChecked(self):
+        return super().isChecked() or not super().isCheckable()
+
+    def data(self):
+        return TemperatureLayers(disabled=not self.isChecked(),
+                                 layers=self._layers.data() if self.isChecked else None)
+
+    def load(self, xpath):
+        self.setChecked(coredb.CoreDB().getAttribute(xpath, 'disabled') == 'false')
+        self._layers.load(xpath)
+
+    async def updateDB(self, db, xpath):
+        if self.isChecked():
+            db.setAttribute(xpath, 'disabled', 'false')
+            await self._layers.updateDB(db, xpath)
+        else:
+            db.setAttribute(xpath, 'disabled', 'true')

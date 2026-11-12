@@ -1,0 +1,104 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import qasync
+
+from PySide6.QtWidgets import QDialog, QListWidgetItem, QWidget, QListWidget
+
+from widgets.async_message_box import AsyncMessageBox
+
+from baramFlow.base.event_bus import EventBus
+from baramFlow.base.region.region_data import BoundaryModel
+from baramFlow.coredb import coredb
+from baramFlow.services.boundary.boundary_service import BoundaryService
+from .copy_dialog_ui import Ui_CopyDialog
+
+
+class BoundaryListItem(QListWidgetItem):
+    def __init__(self, parent: QListWidget, boundary: BoundaryModel):
+        super().__init__(parent)
+
+        self._bcid: str = boundary.bcid
+        self._textForFiltering: str = boundary.name.lower()
+
+        self.setText(boundary.scopedName)
+
+    def bcid(self):
+        return self._bcid
+
+    def applyFilter(self, filterText):
+        self.setHidden(filterText not in self._textForFiltering and not self.isSelected())
+
+
+class Filter:
+    def __init__(self, filter, list):
+        self._filter = filter
+        self._list = list
+
+        self._filter.textChanged.connect(self._apply)
+
+    def _apply(self, text):
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            item.applyFilter(text.lower())
+
+
+class CopyDialog(QDialog):
+    def __init__(self, parent: QWidget, bcid: str):
+        super().__init__(parent)
+        self._ui = Ui_CopyDialog()
+        self._ui.setupUi(self)
+
+        self._items: dict[str: BoundaryListItem] = {}
+        self._sourceId: str = bcid
+
+        self._targetFilter = Filter(self._ui.targetFilter, self._ui.targets)
+
+        self._load()
+        self._connectSignalsSlots()
+
+    def _connectSignalsSlots(self):
+        self._ui.copy.clicked.connect(self._copy)
+        self._ui.close.clicked.connect(self._close)
+
+    def _load(self):
+        self._ui.source.setText(BoundaryService.getBoundary(self._sourceId).scopedName)
+
+        for boundary in BoundaryService.getBoundaries():
+            if boundary.bcid != self._sourceId:
+                self._items[boundary.bcid] = BoundaryListItem(self._ui.targets, boundary)
+    #
+    # def _sourceChanged(self, item):
+    #     if self._sourceId is not None:
+    #         self._items[self._sourceId].setFlags(self._items[self._sourceId].flags() | Qt.ItemFlag.ItemIsEnabled)
+    #
+    #     self._sourceId = item.bcid()
+    #     self._items[self._sourceId].setFlags(self._items[self._sourceId].flags() & ~Qt.ItemFlag.ItemIsEnabled)
+
+    @qasync.asyncSlot()
+    async def _copy(self):
+        targets = self._ui.targets.selectedItems()
+        if not targets:
+            await AsyncMessageBox().information(self, self.tr('Input Error'), self.tr('Select Target Boundaries'))
+            return
+
+        if not await AsyncMessageBox().confirm(
+                self, self.tr('Copy Boundary Conditions'),
+                self.tr('Copy {0} to ({1})?'.format(
+                    self._ui.source.text(),
+                    ', '.join([item.text() for item in self._ui.targets.selectedItems()])))):
+            return
+
+        newType = BoundaryService.getBoundary(self._sourceId).bctype
+        for item in targets:
+            bcid = item.bcid()
+            oldType = BoundaryService.getBoundary(bcid).bctype
+
+            db = coredb.CoreDB()
+            db.copyBoundaryConditions(self._sourceId, bcid)
+
+            if oldType != newType:
+                EventBus().onBoundaryTypeChange.emit(bcid, oldType, newType)
+
+    def _close(self):
+        self.close()

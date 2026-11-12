@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<surfaceMonitor xmlns="http://www.baramcfd.org/baram">
+    <uuid/>
+    <name>default</name>
+    <showChart>true</showChart>
+    <writeInterval>1</writeInterval>
+    <reportType>areaWeightedAverage</reportType>
+    <fieldCategory>basic</fieldCategory>
+    <fieldCodeName>pressure</fieldCodeName>
+    <fieldComponent>1</fieldComponent>
+    <surface>0</surface>
+    <functionName/>
+</surfaceMonitor>

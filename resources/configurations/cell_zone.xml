@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cellZone czid="1" xmlns="http://www.baramcfd.org/baram">
+    <name>All</name>
+    <zoneType>none</zoneType>
+    <mrf>
+        <rotatingSpeed>1000</rotatingSpeed>
+        <rotationAxisOrigin>
+            <x>0</x>
+            <y>0</y>
+            <z>0</z>
+        </rotationAxisOrigin>
+        <rotationAxisDirection>
+            <x>0</x>
+            <y>0</y>
+            <z>1</z>
+        </rotationAxisDirection>
+        <staticBoundaries></staticBoundaries>
+    </mrf>
+    <porous>
+        <model>darcyForchheimer</model>
+        <darcyForchheimer>
+            <direction1Vector>
+                <x>1</x>
+                <y>0</y>
+                <z>0</z>
+            </direction1Vector>
+            <direction2Vector>
+                <x>0</x>
+                <y>0</y>
+                <z>1</z>
+            </direction2Vector>
+            <viscousResistanceCoefficient>
+                <x>0</x>
+                <y>0</y>
+                <z>0</z>
+            </viscousResistanceCoefficient>
+            <inertialResistanceCoefficient>
+                <x>0</x>
+                <y>0</y>
+                <z>0</z>
+            </inertialResistanceCoefficient>
+        </darcyForchheimer>
+        <powerLaw>
+            <c0>0</c0>
+            <c1>0</c1>
+        </powerLaw>
+    </porous>
+    <actuatorDisk>
+        <diskDirection>
+            <x>0</x>
+            <y>0</y>
+            <z>1</z>
+        </diskDirection>
+        <powerCoefficient>0.1</powerCoefficient>
+        <thrustCoefficient>0.1</thrustCoefficient>
+        <diskArea>1</diskArea>
+        <upstreamPoint>
+            <x>0</x>
+            <y>0</y>
+            <z>0</z>
+        </upstreamPoint>
+        <forceComputation>Froude</forceComputation>
+    </actuatorDisk>
+    <sourceTerms>
+        <mass disabled="true">
+            <unit>valueForEntireCellZone</unit>
+            <specification>constant</specification>
+            <constant>0</constant>
+            <piecewiseLinear>
+                <t>0</t>
+                <v>0</v>
+            </piecewiseLinear>
+            <polynomial>0</polynomial>
+        </mass>
+        <materials></materials>
+        <energy disabled="true">
+            <unit>valueForEntireCellZone</unit>
+            <specification>constant</specification>
+            <constant>0</constant>
+            <piecewiseLinear>
+                <t>0</t>
+                <v>0</v>
+            </piecewiseLinear>
+            <polynomial>0</polynomial>
+        </energy>
+        <turbulentKineticEnergy disabled="true">
+            <unit>valueForEntireCellZone</unit>
+            <constant>0</constant>
+        </turbulentKineticEnergy>
+        <turbulentDissipationRate disabled="true">
+            <unit>valueForEntireCellZone</unit>
+            <constant>0</constant>
+        </turbulentDissipationRate>
+        <specificDissipationRate disabled="true">
+            <unit>valueForEntireCellZone</unit>
+            <constant>0</constant>
+        </specificDissipationRate>
+        <modifiedTurbulentViscosity disabled="true">
+            <unit>valueForEntireCellZone</unit>
+            <constant>0</constant>
+        </modifiedTurbulentViscosity>
+        <userDefinedScalars/>
+    </sourceTerms>
+    <fixedValues>
+        <velocity disabled="true">
+            <velocity>
+                <x>0</x>
+                <y>0</y>
+                <z>0</z>
+            </velocity>
+            <relaxation>1</relaxation>
+        </velocity>
+        <temperature disabled="true">300</temperature>
+        <turbulentKineticEnergy disabled="true">0</turbulentKineticEnergy>
+        <turbulentDissipationRate disabled="true">0</turbulentDissipationRate>
+        <specificDissipationRate disabled="true">0</specificDissipationRate>
+        <modifiedTurbulentViscosity disabled="true">0</modifiedTurbulentViscosity>
+        <userDefinedScalars/>
+        <species/>
+    </fixedValues>
+</cellZone>
