@@ -40,6 +40,7 @@ class ResourceConfig:
     tempCritical: float = 89.0
     psuWatts: float = 0.0
     baselineWatts: float = 60.0
+    idleWatts: float = 25.0
     lhmUrl: str = 'http://localhost:8085/data.json'
     solverBinPath: Optional[str] = None
 
@@ -67,6 +68,7 @@ class ResourceSample:
     cpuName: Optional[str] = None
     cpuTemp: Optional[float] = None
     cpuPower: Optional[float] = None
+    cpuPowerEstimated: bool = False
     gpuPower: Optional[float] = None
     gpuNames: List[str] = field(default_factory=list)
     pcPower: Optional[float] = None
@@ -260,6 +262,11 @@ class ResourceSampler:
 
         if sample.gpuPower is None:
             sample.gpuPower = self._readNvidiaSmi(now)
+
+        if sample.cpuPower is None:
+            span = max(config.tdpWatts - config.idleWatts, 0.0)
+            sample.cpuPower = config.idleWatts + span * sample.cpuPercent / 100.0
+            sample.cpuPowerEstimated = True
 
         if not sample.pcPowerMeasured and sample.cpuPower is not None:
             sample.pcPower = sample.cpuPower + (sample.gpuPower or 0.0) + config.baselineWatts

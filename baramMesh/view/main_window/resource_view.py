@@ -236,6 +236,7 @@ class ResourceSettingsDialog(QDialog):
         self._psu = self._spin(0, 3000, ' W')
         self._psu.setSpecialValueText('Not set')
         self._baseline = self._spin(0, 500, ' W')
+        self._idle = self._spin(0, 500, ' W')
         self._url = QLineEdit()
         self._warn.valueChanged.connect(self._critical.setMinimum)
 
@@ -246,6 +247,7 @@ class ResourceSettingsDialog(QDialog):
         form.addRow('Temperature: red at', self._critical)
         form.addRow('PSU capacity', self._psu)
         form.addRow('Rest of system (estimate)', self._baseline)
+        form.addRow('CPU idle power (estimate)', self._idle)
         form.addRow('Hardware monitor URL', self._url)
 
         buttons = QDialogButtonBox(
@@ -280,13 +282,14 @@ class ResourceSettingsDialog(QDialog):
         self._critical.setValue(config.tempCritical)
         self._psu.setValue(config.psuWatts)
         self._baseline.setValue(config.baselineWatts)
+        self._idle.setValue(config.idleWatts)
         self._url.setText(config.lhmUrl)
 
     def config(self) -> ResourceConfig:
         return ResourceConfig(
             tdpWatts=self._tdp.value(), pptWatts=self._ppt.value(), tempWarn=self._warn.value(),
             tempCritical=max(self._critical.value(), self._warn.value()), psuWatts=self._psu.value(),
-            baselineWatts=self._baseline.value(), lhmUrl=self._url.text().strip(),
+            baselineWatts=self._baseline.value(), idleWatts=self._idle.value(), lhmUrl=self._url.text().strip(),
             solverBinPath=self._solverBinPath)
 
 
@@ -387,8 +390,8 @@ class ResourceWidget(QWidget):
                 parts.append(', '.join(sample.gpuNames))
             self._source.setText('  ·  '.join(parts))
         else:
-            self._source.setText(f'Temperature and power unavailable: no hardware monitor reachable at '
-                                 f'{config.lhmUrl}. {LHM_HINT}')
+            self._source.setText(f'CPU power is estimated from CPU usage (psutil). Temperature needs a hardware '
+                                 f'monitor, none reachable at {config.lhmUrl}. {LHM_HINT}')
 
     def _refreshMemory(self, sample, history, xs):
         card = self._memory
@@ -446,7 +449,8 @@ class ResourceWidget(QWidget):
         card.spark.setYRange(30, max(100.0, config.tempCritical + 5), padding=0)
 
         if sample.cpuTemp is None:
-            self._unavailable(card, 'Unavailable: no CPU temperature sensor (see the note above).')
+            self._unavailable(card, 'Unavailable: psutil cannot read CPU temperature on Windows. '
+                                    'Needs a hardware monitor (see the note above).')
             return
 
         temperature = sample.cpuTemp
@@ -488,11 +492,16 @@ class ResourceWidget(QWidget):
             color = NORMAL
             card.setChip()
 
-        card.setValue(f'{power:.0f} W / {config.tdpWatts:.0f} W TDP ({power / config.tdpWatts:.0%})')
+        approx = '~' if sample.cpuPowerEstimated else ''
+        card.setValue(f'{approx}{power:.0f} W / {config.tdpWatts:.0f} W TDP ({power / config.tdpWatts:.0%})')
         card.ring.setData(scale, [(power, color)], [(config.tdpWatts, self._colors['muted']),
                                                     (config.pptWatts, CRITICAL)],
-                          center=f'{power / config.tdpWatts:.0%}')
-        card.setDetail(f'TDP {config.tdpWatts:.0f} W · package power limit (PPT) {config.pptWatts:.0f} W')
+                          center=f'{approx}{power / config.tdpWatts:.0%}')
+        if sample.cpuPowerEstimated:
+            card.setDetail(f'Estimated from CPU usage: {config.idleWatts:.0f} W idle to {config.tdpWatts:.0f} W '
+                           f'at full load (psutil)')
+        else:
+            card.setDetail(f'TDP {config.tdpWatts:.0f} W · package power limit (PPT) {config.pptWatts:.0f} W')
 
     def _refreshPcPower(self, sample, config, history, xs):
         card = self._pcPower
