@@ -8,8 +8,9 @@ from urllib.parse import urlparse
 import pyqtgraph as pg
 from PySide6.QtCore import QCoreApplication, QEvent, QMargins, QPointF, QRectF, QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen
-from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QFrame,
-                               QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout,
+                               QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout,
+                               QWidget)
 from PySide6QtAds import CDockWidget
 
 from libbaram.app_path import APP_PATH
@@ -238,6 +239,13 @@ class ResourceSettingsDialog(QDialog):
         self._baseline = self._spin(0, 500, ' W')
         self._idle = self._spin(0, 500, ' W')
         self._url = QLineEdit()
+        self._dll = QLineEdit()
+        self._dll.setPlaceholderText('Optional, e.g. C:\\Tools\\OpenHardwareMonitor\\OpenHardwareMonitorLib.dll')
+        browse = QPushButton('Browse…')
+        browse.clicked.connect(self._browseDll)
+        dllRow = QHBoxLayout()
+        dllRow.addWidget(self._dll, 1)
+        dllRow.addWidget(browse)
         self._warn.valueChanged.connect(self._critical.setMinimum)
 
         form = QFormLayout()
@@ -248,6 +256,7 @@ class ResourceSettingsDialog(QDialog):
         form.addRow('PSU capacity', self._psu)
         form.addRow('Rest of system (estimate)', self._baseline)
         form.addRow('CPU idle power (estimate)', self._idle)
+        form.addRow('OpenHardwareMonitorLib.dll', dllRow)
         form.addRow('Hardware monitor URL', self._url)
 
         buttons = QDialogButtonBox(
@@ -275,7 +284,14 @@ class ResourceSettingsDialog(QDialog):
         spin.setSuffix(suffix)
         return spin
 
+    def _browseDll(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, 'Select OpenHardwareMonitorLib.dll', self._dll.text(), 'OpenHardwareMonitorLib (*.dll)')
+        if path:
+            self._dll.setText(path)
+
     def _load(self, config):
+        self._dll.setText(config.ohmDllPath)
         self._tdp.setValue(config.tdpWatts)
         self._ppt.setValue(config.pptWatts)
         self._warn.setValue(config.tempWarn)
@@ -289,7 +305,8 @@ class ResourceSettingsDialog(QDialog):
         return ResourceConfig(
             tdpWatts=self._tdp.value(), pptWatts=self._ppt.value(), tempWarn=self._warn.value(),
             tempCritical=max(self._critical.value(), self._warn.value()), psuWatts=self._psu.value(),
-            baselineWatts=self._baseline.value(), idleWatts=self._idle.value(), lhmUrl=self._url.text().strip(),
+            baselineWatts=self._baseline.value(), idleWatts=self._idle.value(),
+            ohmDllPath=self._dll.text().strip(), lhmUrl=self._url.text().strip(),
             solverBinPath=self._solverBinPath)
 
 
@@ -382,16 +399,19 @@ class ResourceWidget(QWidget):
 
     def _refreshSource(self, sample, config):
         if sample.sensorSource and sample.sensorSource != 'psutil':
-            host = urlparse(config.lhmUrl).netloc or config.lhmUrl
-            parts = [f'Temperature and power from {sample.sensorSource} ({host})']
+            location = sample.sensorDetail or urlparse(config.lhmUrl).netloc or config.lhmUrl
+            parts = [f'Temperature and power from {sample.sensorSource} ({location})']
             if sample.cpuName:
                 parts.append(sample.cpuName)
             if sample.gpuNames:
                 parts.append(', '.join(sample.gpuNames))
+            if sample.sensorError:
+                parts.append(sample.sensorError)
             self._source.setText('  ·  '.join(parts))
         else:
+            reason = f'{sample.libraryError}. ' if sample.libraryError else ''
             self._source.setText(f'CPU power is estimated from CPU usage (psutil). Temperature needs a hardware '
-                                 f'monitor, none reachable at {config.lhmUrl}. {LHM_HINT}')
+                                 f'monitor. {reason}None reachable at {config.lhmUrl}. {LHM_HINT}')
 
     def _refreshMemory(self, sample, history, xs):
         card = self._memory

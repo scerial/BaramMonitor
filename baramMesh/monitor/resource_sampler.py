@@ -15,6 +15,8 @@ from typing import List, Optional
 
 import psutil
 
+from baramMesh.monitor.ohm_library import OhmLibrary, findLibrary, isAdministrator
+
 
 MESHING_PROCESS_NAMES = {
     'snappyhexmesh', 'checkmesh', 'topset', 'blockmesh', 'surfacefeatureextract', 'surfacefeatures',
@@ -27,6 +29,7 @@ DEFAULT_MONITOR_NAME = 'Hardware monitor'
 GPU_FAMILIES = ('nvidiagpu', 'atigpu')
 INTEGRATED_GPU_MARKERS =('Radeon(TM) Graphics', 'Radeon Graphics', 'UHD Graphics', 'HD Graphics', 'Iris')
 LHM_RETRY_SECONDS = 10.0
+LIBRARY_RETRY_SECONDS = 30.0
 NVIDIA_SMI_INTERVAL = 2.0
 
 _NUMBER = re.compile(r'[-+]?\d+(?:[.,]\d+)?')
@@ -41,6 +44,7 @@ class ResourceConfig:
     psuWatts: float = 0.0
     baselineWatts: float = 60.0
     idleWatts: float = 25.0
+    ohmDllPath: str = ''
     lhmUrl: str = 'http://localhost:8085/data.json'
     solverBinPath: Optional[str] = None
 
@@ -74,7 +78,9 @@ class ResourceSample:
     pcPower: Optional[float] = None
     pcPowerMeasured: bool = False
     sensorSource: Optional[str] = None
+    sensorDetail: Optional[str] = None
     sensorError: Optional[str] = None
+    libraryError: Optional[str] = None
 
 
 def _numeric(node, key='Value'):
@@ -181,6 +187,10 @@ class ResourceSampler:
         self._lhmRetryAt = 0.0
         self._lhmError = None
         self._monitorName = None
+        self._monitorDirectory = None
+        self._library = None
+        self._libraryRetryAt = 0.0
+        self._libraryError = None
         self._nvidiaSmi = shutil.which('nvidia-smi')
         self._nvidiaAt = 0.0
         self._nvidiaPower = None
@@ -194,10 +204,15 @@ class ResourceSampler:
     def setConfig(self, config: ResourceConfig):
         with self._lock:
             urlChanged = config.lhmUrl != self._config.lhmUrl
+            pathChanged = config.ohmDllPath != self._config.ohmDllPath
             self._config = replace(config)
 
         if urlChanged:
             self._lhmRetryAt = 0.0
+
+        if pathChanged:
+            self._libraryRetryAt = 0.0
+            self._closeLibrary()
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -231,6 +246,8 @@ class ResourceSampler:
 
             self._stop.wait(max(0.0, self._interval - (time.monotonic() - started)))
 
+        self._closeLibrary()
+
     def sampleOnce(self) -> ResourceSample:
         config = self.config
         now = time.monotonic()
@@ -243,9 +260,18 @@ class ResourceSampler:
             memMeshing=memMeshing, meshingRanks=ranks, cpuPercent=psutil.cpu_percent(None),
             cpuMeshingPercent=min(100.0, meshingCpu / self._logicalCores), logicalCores=self._logicalCores)
 
-        reading = self._readHardwareMonitor(config, now)
+        reading = self._readLibrary(config, now)
         if reading is not None:
-            sample.sensorSource = self._monitorName or DEFAULT_MONITOR_NAME
+            sample.sensorSource = 'OpenHardwareMonitor (DLL)'
+            sample.sensorDetail = os.path.basename(self._library.path)
+            if reading.cpuTemp is None and reading.cpuPower is None and not isAdministrator():
+                sample.sensorError = 'No CPU sensors: run BaramMesh as administrator so the library can load its driver.'
+        else:
+            reading = self._readHardwareMonitor(config, now)
+            if reading is not None:
+                sample.sensorSource = self._monitorName or DEFAULT_MONITOR_NAME
+
+        if reading is not None:
             sample.cpuName = reading.cpuName
             sample.cpuTemp = reading.cpuTemp
             sample.cpuPower = reading.cpuPower
@@ -256,6 +282,7 @@ class ResourceSampler:
                 sample.pcPowerMeasured = True
         else:
             sample.sensorError = self._lhmError
+            sample.libraryError = self._libraryError
             sample.cpuTemp = _linuxCpuTemperature()
             if sample.cpuTemp is not None:
                 sample.sensorSource = 'psutil'
@@ -277,12 +304,16 @@ class ResourceSampler:
         solverBin = os.path.normcase(str(config.solverBinPath)) if config.solverBinPath else None
         memory, ranks, cpu = 0, 0, 0.0
         monitorName = None
+        monitorDirectory = None
 
         for process in psutil.process_iter(['name', 'exe']):
             name = (process.info.get('name') or '').lower()
             stem = name[:-4] if name.endswith('.exe') else name
             monitorName = monitorName or HARDWARE_MONITOR_PROCESSES.get(stem)
             exe = process.info.get('exe')
+            if stem == 'openhardwaremonitor' and exe:
+                monitorDirectory = os.path.dirname(exe)
+
             launcher = stem in MPI_LAUNCHER_NAMES
             meshing = stem in MESHING_PROCESS_NAMES or bool(
                 solverBin and exe and os.path.normcase(exe).startswith(solverBin))
@@ -299,7 +330,44 @@ class ResourceSampler:
                 ranks += 1
 
         self._monitorName = monitorName
+        self._monitorDirectory = monitorDirectory
         return memory, ranks, cpu
+
+    def _closeLibrary(self):
+        library, self._library = self._library, None
+        if library is not None:
+            library.close()
+
+    def _readLibrary(self, config, now) -> Optional[HardwareReading]:
+        if self._library is None:
+            if now < self._libraryRetryAt:
+                return None
+
+            path = findLibrary(config.ohmDllPath, [self._monitorDirectory])
+            if path is None:
+                self._libraryError = f'{os.path.basename(config.ohmDllPath)} not found' if config.ohmDllPath else None
+                self._libraryRetryAt = now + LIBRARY_RETRY_SECONDS
+                return None
+
+            library = OhmLibrary(path)
+            try:
+                library.open()
+            except Exception as e:
+                library.close()
+                self._libraryError = f'Could not load {os.path.basename(path)}: {type(e).__name__}: {e}'
+                self._libraryRetryAt = now + LIBRARY_RETRY_SECONDS
+                return None
+
+            self._library = library
+            self._libraryError = None
+
+        try:
+            return parseHardwareMonitor(self._library.read())
+        except Exception as e:
+            self._libraryError = f'Reading sensors failed: {type(e).__name__}: {e}'
+            self._libraryRetryAt = now + LIBRARY_RETRY_SECONDS
+            self._closeLibrary()
+            return None
 
     def _readHardwareMonitor(self, config, now) -> Optional[HardwareReading]:
         if not config.lhmUrl or now < self._lhmRetryAt:
