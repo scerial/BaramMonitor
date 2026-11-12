@@ -27,7 +27,8 @@ HISTORY_SECONDS = 300
 SETTINGS_ORGANIZATION = 'BaramMonitor'
 SETTINGS_APPLICATION = 'ResourceMonitor'
 GIB = 1024 ** 3
-LHM_HINT = 'Run LibreHardwareMonitor as administrator and enable Options → Remote Web Server → Run.'
+LHM_HINT = ('Run OpenHardwareMonitor or LibreHardwareMonitor as administrator and enable '
+            'Options → Remote Web Server → Run.')
 
 
 def _mix(first: QColor, second: QColor, ratio: float):
@@ -245,7 +246,7 @@ class ResourceSettingsDialog(QDialog):
         form.addRow('Temperature: red at', self._critical)
         form.addRow('PSU capacity', self._psu)
         form.addRow('Rest of system (estimate)', self._baseline)
-        form.addRow('LibreHardwareMonitor URL', self._url)
+        form.addRow('Hardware monitor URL', self._url)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -377,16 +378,16 @@ class ResourceWidget(QWidget):
         self._refreshPcPower(sample, config, history, xs)
 
     def _refreshSource(self, sample, config):
-        if sample.sensorSource == 'LibreHardwareMonitor':
+        if sample.sensorSource and sample.sensorSource != 'psutil':
             host = urlparse(config.lhmUrl).netloc or config.lhmUrl
-            parts = [f'Temperature and power from LibreHardwareMonitor ({host})']
+            parts = [f'Temperature and power from {sample.sensorSource} ({host})']
             if sample.cpuName:
                 parts.append(sample.cpuName)
             if sample.gpuNames:
                 parts.append(', '.join(sample.gpuNames))
             self._source.setText('  ·  '.join(parts))
         else:
-            self._source.setText(f'Temperature and power unavailable: LibreHardwareMonitor not reachable at '
+            self._source.setText(f'Temperature and power unavailable: no hardware monitor reachable at '
                                  f'{config.lhmUrl}. {LHM_HINT}')
 
     def _refreshMemory(self, sample, history, xs):

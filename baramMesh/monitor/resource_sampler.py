@@ -22,7 +22,10 @@ MESHING_PROCESS_NAMES = {
     'transformpoints', 'createpatch', 'splitmeshregions', 'foamtovtk'
 }
 MPI_LAUNCHER_NAMES = {'mpiexec', 'mpirun', 'smpd', 'orted', 'prterun', 'prted', 'hydra_pmi_proxy'}
-INTEGRATED_GPU_MARKERS = ('Radeon(TM) Graphics', 'Radeon Graphics', 'UHD Graphics', 'HD Graphics', 'Iris')
+HARDWARE_MONITOR_PROCESSES = {'openhardwaremonitor': 'OpenHardwareMonitor', 'librehardwaremonitor': 'LibreHardwareMonitor'}
+DEFAULT_MONITOR_NAME = 'Hardware monitor'
+GPU_FAMILIES = ('nvidiagpu', 'atigpu')
+INTEGRATED_GPU_MARKERS =('Radeon(TM) Graphics', 'Radeon Graphics', 'UHD Graphics', 'HD Graphics', 'Iris')
 LHM_RETRY_SECONDS = 10.0
 NVIDIA_SMI_INTERVAL = 2.0
 
@@ -105,7 +108,7 @@ def _pick(items, preferences):
     return max((value for _, value in items), default=None)
 
 
-def parseLibreHardwareMonitor(data) -> HardwareReading:
+def parseHardwareMonitor(data) -> HardwareReading:
     reading = HardwareReading()
     cpuTemps, cpuPowers, psuPowers = [], [], []
     gpus = {}
@@ -125,7 +128,7 @@ def parseLibreHardwareMonitor(data) -> HardwareReading:
                 cpuTemps.append((text, value))
             elif kind == 'power':
                 cpuPowers.append((text, value))
-        elif family.startswith('gpu') and kind == 'power':
+        elif (family.startswith('gpu') or family in GPU_FAMILIES) and kind == 'power':
             if hardware and any(marker in hardware for marker in INTEGRATED_GPU_MARKERS):
                 continue
 
@@ -143,6 +146,9 @@ def parseLibreHardwareMonitor(data) -> HardwareReading:
     reading.psuPower = _pick(psuPowers, ('Total',))
 
     return reading
+
+
+parseLibreHardwareMonitor = parseHardwareMonitor
 
 
 def _linuxCpuTemperature():
@@ -172,6 +178,7 @@ class ResourceSampler:
         self._thread = None
         self._lhmRetryAt = 0.0
         self._lhmError = None
+        self._monitorName = None
         self._nvidiaSmi = shutil.which('nvidia-smi')
         self._nvidiaAt = 0.0
         self._nvidiaPower = None
@@ -234,9 +241,9 @@ class ResourceSampler:
             memMeshing=memMeshing, meshingRanks=ranks, cpuPercent=psutil.cpu_percent(None),
             cpuMeshingPercent=min(100.0, meshingCpu / self._logicalCores), logicalCores=self._logicalCores)
 
-        reading = self._readLibreHardwareMonitor(config, now)
+        reading = self._readHardwareMonitor(config, now)
         if reading is not None:
-            sample.sensorSource = 'LibreHardwareMonitor'
+            sample.sensorSource = self._monitorName or DEFAULT_MONITOR_NAME
             sample.cpuName = reading.cpuName
             sample.cpuTemp = reading.cpuTemp
             sample.cpuPower = reading.cpuPower
@@ -262,10 +269,12 @@ class ResourceSampler:
     def _meshingUsage(self, config):
         solverBin = os.path.normcase(str(config.solverBinPath)) if config.solverBinPath else None
         memory, ranks, cpu = 0, 0, 0.0
+        monitorName = None
 
         for process in psutil.process_iter(['name', 'exe']):
             name = (process.info.get('name') or '').lower()
             stem = name[:-4] if name.endswith('.exe') else name
+            monitorName = monitorName or HARDWARE_MONITOR_PROCESSES.get(stem)
             exe = process.info.get('exe')
             launcher = stem in MPI_LAUNCHER_NAMES
             meshing = stem in MESHING_PROCESS_NAMES or bool(
@@ -282,9 +291,10 @@ class ResourceSampler:
             if meshing and not launcher:
                 ranks += 1
 
+        self._monitorName = monitorName
         return memory, ranks, cpu
 
-    def _readLibreHardwareMonitor(self, config, now) -> Optional[HardwareReading]:
+    def _readHardwareMonitor(self, config, now) -> Optional[HardwareReading]:
         if not config.lhmUrl or now < self._lhmRetryAt:
             return None
 
@@ -297,7 +307,7 @@ class ResourceSampler:
             return None
 
         self._lhmError = None
-        return parseLibreHardwareMonitor(data)
+        return parseHardwareMonitor(data)
 
     def _readNvidiaSmi(self, now):
         if not self._nvidiaSmi:
