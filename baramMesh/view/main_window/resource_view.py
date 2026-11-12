@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import math
 from dataclasses import fields
 from urllib.parse import urlparse
 
 import pyqtgraph as pg
 from PySide6.QtCore import QCoreApplication, QEvent, QMargins, QPointF, QRectF, QSettings, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPalette, QPen
+from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QFrame,
                                QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget)
 from PySide6QtAds import CDockWidget
@@ -62,41 +63,61 @@ def saveConfig(config: ResourceConfig):
             settings.setValue(f.name, getattr(config, f.name))
 
 
-class _MeterBar(QWidget):
-    def __init__(self, trackColor: QColor):
+class _RingGauge(QWidget):
+    SIZE = 112
+    THICKNESS = 12
+
+    def __init__(self, trackColor: QColor, textColor: QColor):
         super().__init__()
         self._track = trackColor
+        self._text = textColor
         self._maximum = 1.0
         self._segments = []
         self._markers = []
-        self.setFixedHeight(14)
+        self._center = '–'
+        self.setFixedSize(self.SIZE, self.SIZE)
 
-    def setData(self, maximum, segments, markers=()):
+    def setData(self, maximum, segments, markers=(), center='–'):
         self._maximum = max(float(maximum), 1e-9)
         self._segments = list(segments)
         self._markers = list(markers)
+        self._center = center
         self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = QRectF(self.rect()).adjusted(1, 2, -1, -2)
-        path = QPainterPath()
-        path.addRoundedRect(rect, rect.height() / 2, rect.height() / 2)
-        painter.fillPath(path, self._track)
+        inset = self.THICKNESS / 2 + 3
+        rect = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
 
-        painter.setClipPath(path)
-        x = rect.left()
+        painter.setPen(QPen(self._track, self.THICKNESS))
+        painter.drawEllipse(rect)
+
+        used = 0.0
         for value, color in self._segments:
-            width = rect.width() * max(value, 0) / self._maximum
-            painter.fillRect(QRectF(x, rect.top(), width, rect.height()), QColor(color))
-            x += width
+            value = min(max(value, 0.0), self._maximum - used)
+            if value <= 0:
+                continue
 
-        painter.setClipping(False)
+            painter.setPen(QPen(QColor(color), self.THICKNESS, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+            painter.drawArc(rect, round((90 - 360 * used / self._maximum) * 16), -round(360 * value / self._maximum * 16))
+            used += value
+
+        center = rect.center()
+        inner = rect.width() / 2 - self.THICKNESS / 2 - 2
+        outer = rect.width() / 2 + self.THICKNESS / 2 + 2
         for value, color in self._markers:
-            mx = rect.left() + rect.width() * min(max(value / self._maximum, 0), 1)
+            angle = math.radians(90 - 360 * min(max(value / self._maximum, 0), 1))
+            direction = QPointF(math.cos(angle), -math.sin(angle))
             painter.setPen(QPen(QColor(color), 2))
-            painter.drawLine(QPointF(mx, 0), QPointF(mx, self.height()))
+            painter.drawLine(center + direction * inner, center + direction * outer)
+
+        font = QFont(self.font())
+        font.setPointSizeF(self.font().pointSizeF() * 1.6)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(self._text)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self._center)
 
 
 class _Sparkline(pg.PlotWidget):
@@ -145,15 +166,16 @@ class _MetricCard(QFrame):
         titleLabel.setFont(titleFont)
 
         self._value = QLabel('–')
+        self._value.setWordWrap(True)
         valueFont = QFont(self.font())
-        valueFont.setPointSizeF(self.font().pointSizeF() * 1.35)
+        valueFont.setPointSizeF(self.font().pointSizeF() * 1.2)
         valueFont.setBold(True)
         self._value.setFont(valueFont)
 
         self._chip = QLabel('')
         self._chip.hide()
 
-        self.bar = _MeterBar(colors['track'])
+        self.ring = _RingGauge(colors['track'], colors['text'])
         self._detail = QLabel('')
         self._detail.setWordWrap(True)
         self._detail.setStyleSheet(f'color: {colors["muted"].name()};')
@@ -163,14 +185,23 @@ class _MetricCard(QFrame):
         header.addWidget(titleLabel)
         header.addStretch(1)
         header.addWidget(self._chip, 0, Qt.AlignmentFlag.AlignVCenter)
-        header.addWidget(self._value)
+
+        texts = QVBoxLayout()
+        texts.setSpacing(3)
+        texts.addLayout(header)
+        texts.addWidget(self._value)
+        texts.addWidget(self._detail)
+        texts.addStretch(1)
+
+        top = QHBoxLayout()
+        top.setSpacing(12)
+        top.addWidget(self.ring, 0, Qt.AlignmentFlag.AlignTop)
+        top.addLayout(texts, 1)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(QMargins(10, 6, 10, 6))
+        layout.setContentsMargins(QMargins(10, 8, 10, 6))
         layout.setSpacing(4)
-        layout.addLayout(header)
-        layout.addWidget(self.bar)
-        layout.addWidget(self._detail)
+        layout.addLayout(top)
         layout.addWidget(self.spark)
 
     def setValue(self, text):
@@ -265,6 +296,7 @@ class ResourceWidget(QWidget):
         background = palette.color(QPalette.ColorRole.Base)
         text = palette.color(QPalette.ColorRole.Text)
         self._colors = {
+            'text': text,
             'panel': _mix(text, background, 0.06),
             'track': _mix(text, background, 0.14),
             'muted': _mix(text, background, 0.55),
@@ -365,7 +397,7 @@ class ResourceWidget(QWidget):
         ratio = used / total if total else 0
 
         card.setValue(f'{used / GIB:.1f} / {total / GIB:.1f} GB')
-        card.bar.setData(total, [(meshing, MESHING), (other, self._colors['other'])])
+        card.ring.setData(total, [(meshing, MESHING), (other, self._colors['other'])], center=f'{ratio:.0%}')
         if ratio >= MEMORY_CRITICAL_RATIO:
             card.setChip('Nearly full', CRITICAL)
         elif ratio >= MEMORY_WARN_RATIO:
@@ -389,7 +421,8 @@ class ResourceWidget(QWidget):
         card = self._cpu
         meshing = min(sample.cpuMeshingPercent, sample.cpuPercent)
         card.setValue(f'{sample.cpuPercent:.0f}%')
-        card.bar.setData(100, [(meshing, MESHING), (sample.cpuPercent - meshing, NORMAL)])
+        card.ring.setData(100, [(meshing, MESHING), (sample.cpuPercent - meshing, NORMAL)],
+                          center=f'{sample.cpuPercent:.0f}%')
         card.setChip()
         card.setDetail(f'<span style="color:{MESHING}">■</span> Meshing {meshing:.0f}% · '
                        f'{sample.logicalCores} logical cores')
@@ -400,7 +433,7 @@ class ResourceWidget(QWidget):
     def _unavailable(self, card, reason):
         card.setValue('–')
         card.setChip()
-        card.bar.setData(1, [])
+        card.ring.setData(1, [])
         card.setDetail(reason)
         card.spark.setLines([])
 
@@ -427,8 +460,8 @@ class ResourceWidget(QWidget):
             card.setChip()
 
         card.setValue(f'{temperature:.1f} °C')
-        card.bar.setData(max(100.0, config.tempCritical + 5), [(temperature, color)],
-                         [(config.tempWarn, WARN), (config.tempCritical, CRITICAL)])
+        card.ring.setData(max(100.0, config.tempCritical + 5), [(temperature, color)],
+                          [(config.tempWarn, WARN), (config.tempCritical, CRITICAL)], center=f'{temperature:.0f}°')
         card.setDetail(f'Yellow from {config.tempWarn:.0f} °C · red at {config.tempCritical:.0f} °C')
 
     def _refreshCpuPower(self, sample, config, history, xs):
@@ -455,8 +488,9 @@ class ResourceWidget(QWidget):
             card.setChip()
 
         card.setValue(f'{power:.0f} W / {config.tdpWatts:.0f} W TDP ({power / config.tdpWatts:.0%})')
-        card.bar.setData(scale, [(power, color)], [(config.tdpWatts, self._colors['muted']),
-                                                    (config.pptWatts, CRITICAL)])
+        card.ring.setData(scale, [(power, color)], [(config.tdpWatts, self._colors['muted']),
+                                                    (config.pptWatts, CRITICAL)],
+                          center=f'{power / config.tdpWatts:.0%}')
         card.setDetail(f'TDP {config.tdpWatts:.0f} W · package power limit (PPT) {config.pptWatts:.0f} W')
 
     def _refreshPcPower(self, sample, config, history, xs):
@@ -490,14 +524,15 @@ class ResourceWidget(QWidget):
                 card.setChip()
 
             card.setValue(f'{power:.0f} W / {psu:.0f} W PSU ({ratio:.0%})')
-            card.bar.setData(psu * 1.05, [(power, color)], [(psu * PSU_WARN_RATIO, WARN), (psu, CRITICAL)])
+            card.ring.setData(psu * 1.05, [(power, color)], [(psu * PSU_WARN_RATIO, WARN), (psu, CRITICAL)],
+                              center=f'{ratio:.0%}')
             card.setDetail(f'{source} · yellow from {PSU_WARN_RATIO:.0%} of PSU capacity')
             card.spark.setLines([(psu * PSU_WARN_RATIO, WARN), (psu, CRITICAL)])
             card.spark.setYRange(0, psu * 1.05, padding=0)
         else:
             card.setChip()
             card.setValue(f'{power:.0f} W')
-            card.bar.setData(max(power * 2, 1), [(power, NORMAL)])
+            card.ring.setData(max(power * 2, 1), [(power, NORMAL)], center=f'{power:.0f} W')
             card.setDetail(f'{source} · set your PSU capacity in Settings to compare')
             card.spark.setLines([])
             card.spark.enableAutoRange(axis='y')
