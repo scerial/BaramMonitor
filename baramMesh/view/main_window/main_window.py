@@ -41,6 +41,7 @@ from .naviagtion_view import NavigationView
 from .rendering_tool import RenderingTool
 from .console_view import ConsoleView
 from .progress_view import ProgressView
+from .resource_view import ResourceView
 from .mesh_manager import MeshManager
 from .step_manager import StepManager
 from .main_window_ui import Ui_MainWindow
@@ -71,6 +72,7 @@ class MainWindow(QMainWindow):
         self._renderingTool = RenderingTool(self._ui)
         self._consoleView = ConsoleView()
         self._progressView = ProgressView()
+        self._resourceView = ResourceView()
 
         self._geometryManager: Optional[GeometryManager] = None
         self._meshManager = None
@@ -97,6 +99,7 @@ class MainWindow(QMainWindow):
 
         self._dockManager.addDockWidget(DockWidgetArea.CenterDockWidgetArea, self._consoleView)
         self._dockManager.addDockWidgetTabToArea(self._progressView, self._consoleView.dockAreaWidget())
+        self._dockManager.addDockWidgetTabToArea(self._resourceView, self._consoleView.dockAreaWidget())
         self._consoleView.setAsCurrentTab()
 
         self._ui.regionValidationMessage.hide()
@@ -179,6 +182,7 @@ class MainWindow(QMainWindow):
 
         self._ui.menuView.addAction(self._consoleView.toggleViewAction())
         self._ui.menuView.addAction(self._progressView.toggleViewAction())
+        self._ui.menuView.addAction(self._resourceView.toggleViewAction())
         self._consoleView.widget().lineAppended.connect(self._progressView.widget().feed)
 
         self._ui.actionNew.triggered.connect(self._actionNew)
