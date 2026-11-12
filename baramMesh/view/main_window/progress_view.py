@@ -21,6 +21,7 @@ class ProgressWidget(QWidget):
         super().__init__()
         self._parser = SnappyLogParser()
         self._dirty = False
+        self._mode = None
 
         self._status = QLabel('Waiting for snappyHexMesh output')
         self._status.setWordWrap(True)
@@ -28,18 +29,19 @@ class ProgressWidget(QWidget):
         self._resetButton.setFixedWidth(70)
         self._resetButton.clicked.connect(self.reset)
 
-        self._cellsPlot = pg.PlotWidget()
-        self._cellsPlot.setLabel('left', 'Total cells')
-        self._cellsPlot.showGrid(x=True, y=True, alpha=0.3)
-        self._cellsCurve = self._cellsPlot.plot(pen=pg.mkPen(width=2), symbol='o', symbolSize=5)
+        self._topPlot = pg.PlotWidget()
+        self._topPlot.setMinimumHeight(110)
+        self._topPlot.showGrid(x=True, y=True, alpha=0.3)
+        self._topCurve = self._topPlot.plot(pen=pg.mkPen(width=2), symbol='o', symbolSize=5)
 
-        self._selectedPlot = pg.PlotWidget()
-        self._selectedPlot.setLabel('left', 'Selected for refinement')
-        self._selectedPlot.setLabel('bottom', 'Refinement step')
-        self._selectedPlot.setLogMode(y=True)
-        self._selectedPlot.showGrid(x=True, y=True, alpha=0.3)
-        self._selectedPlot.setXLink(self._cellsPlot)
-        self._selectedCurve = self._selectedPlot.plot(pen=pg.mkPen(width=2), symbol='o', symbolSize=5)
+        self._bottomPlot = pg.PlotWidget()
+        self._bottomPlot.setMinimumHeight(110)
+        self._bottomPlot.setLogMode(y=True)
+        self._bottomPlot.showGrid(x=True, y=True, alpha=0.3)
+        self._bottomPlot.setXLink(self._topPlot)
+        self._bottomCurve = self._bottomPlot.plot(pen=pg.mkPen(width=2), symbol='o', symbolSize=5)
+
+        self._applyMode('refinement')
 
         header = QHBoxLayout()
         header.addWidget(self._status, 1)
@@ -48,8 +50,8 @@ class ProgressWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(QMargins(4, 4, 4, 4))
         layout.addLayout(header)
-        layout.addWidget(self._cellsPlot, 1)
-        layout.addWidget(self._selectedPlot, 1)
+        layout.addWidget(self._topPlot, 1)
+        layout.addWidget(self._bottomPlot, 1)
 
         self._timer = QTimer(self)
         self._timer.setInterval(500)
@@ -67,6 +69,23 @@ class ProgressWidget(QWidget):
         self._dirty = True
         self._refresh()
 
+    def _applyMode(self, mode):
+        if mode == self._mode:
+            return
+
+        self._mode = mode
+        if mode == 'layers':
+            self._topPlot.setLabel('left', 'Extruded faces (%)')
+            self._bottomPlot.setLabel('left', 'Illegal faces')
+            self._bottomPlot.setLabel('bottom', 'Layer iteration')
+        else:
+            self._topPlot.setLabel('left', 'Total cells')
+            self._bottomPlot.setLabel('left', 'Selected for refinement')
+            self._bottomPlot.setLabel('bottom', 'Refinement step')
+
+        self._topPlot.enableAutoRange()
+        self._bottomPlot.enableAutoRange()
+
     def _refresh(self):
         if not self._dirty:
             return
@@ -74,30 +93,42 @@ class ProgressWidget(QWidget):
         self._dirty = False
         state = self._parser.state
         samples = state.samples
+        layerSamples = state.layerSamples
 
-        xs = [s.index for s in samples]
-        self._cellsCurve.setData(xs, [s.total for s in samples])
-        self._selectedCurve.setData(xs, [max(s.selected, 1) for s in samples])
+        if state.phase == 'layer addition' and layerSamples:
+            self._applyMode('layers')
+            xs = [s.iteration for s in layerSamples]
+            self._topCurve.setData(xs, [s.extrudedPercent for s in layerSamples])
+            self._bottomCurve.setData(xs, [max(s.illegalFaces or 0, 1) for s in layerSamples])
+        else:
+            self._applyMode('refinement')
+            xs = [s.index for s in samples]
+            self._topCurve.setData(xs, [s.total for s in samples])
+            self._bottomCurve.setData(xs, [max(s.selected, 1) for s in samples])
 
         parts = []
         if state.phase:
             parts.append(state.phase)
         if state.iteration is not None and 'refinement' in state.phase:
             parts.append(f'iteration {state.iteration}')
-        if state.morphIteration is not None and state.phase == 'snapping':
+            if state.totalCells is not None:
+                parts.append(f'{state.totalCells:,} cells')
+            if state.selected is not None:
+                parts.append(f'{state.selected:,} selected')
+            if samples and samples[-1].duration is not None:
+                parts.append(f'last step {_formatDuration(samples[-1].duration)}')
+            if samples:
+                parts.append(f'elapsed {_formatDuration(samples[-1].wallTime)}')
+        elif state.phase == 'snapping' and state.morphIteration is not None:
             parts.append(f'iteration {state.morphIteration}')
-        if state.layerIteration is not None and state.phase == 'layer addition':
+        elif state.phase == 'layer addition' and state.layerIteration is not None:
             parts.append(f'iteration {state.layerIteration}')
             if state.extrusionPercent is not None:
                 parts.append(f'extruded {state.extrusionPercent:.1f}%')
-        if state.totalCells is not None:
-            parts.append(f'{state.totalCells:,} cells')
-        if state.selected is not None:
-            parts.append(f'{state.selected:,} selected')
-        if samples and samples[-1].duration is not None:
-            parts.append(f'last step {_formatDuration(samples[-1].duration)}')
-        if samples:
-            parts.append(f'elapsed {_formatDuration(samples[-1].wallTime)}')
+            if layerSamples and layerSamples[-1].illegalFaces is not None:
+                parts.append(f'{layerSamples[-1].illegalFaces:,} illegal faces')
+            if layerSamples:
+                parts.append(f'elapsed {_formatDuration(layerSamples[-1].wallTime)}')
 
         self._status.setText('  |  '.join(parts) if parts else 'Waiting for snappyHexMesh output')
 
@@ -106,7 +137,7 @@ class ProgressView(CDockWidget):
     def __init__(self):
         super().__init__(self._title())
 
-        self.setWidget(ProgressWidget())
+        self.setWidget(ProgressWidget(), CDockWidget.eInsertMode.ForceNoScrollArea)
 
     def changeEvent(self, event):
         if event.type() == QEvent.Type.LanguageChange:

@@ -14,6 +14,7 @@ _EDGES = re.compile(r'^\s*Number of edges\s*:\s*(\d+)')
 _MORPH = re.compile(r'^\s*Morph iteration (\d+)')
 _LAYER_ITERATION = re.compile(r'^\s*Layer addition iteration (\d+)')
 _EXTRUDING = re.compile(r'^\s*Extruding (\d+) out of (\d+) faces \(([\d.]+)%\)')
+_ILLEGAL = re.compile(r'^\s*Detected (\d+) illegal faces')
 _EXEC = re.compile(r'^\s*Exec\s*:\s*(\S+)')
 
 
@@ -29,6 +30,15 @@ class RefinementSample:
 
 
 @dataclass
+class LayerSample:
+    index: int
+    iteration: int
+    extrudedPercent: float
+    illegalFaces: Optional[int]
+    wallTime: float
+
+
+@dataclass
 class ProgressState:
     program: str = ''
     phase: str = ''
@@ -39,8 +49,10 @@ class ProgressState:
     morphIteration: Optional[int] = None
     layerIteration: Optional[int] = None
     extrusionPercent: Optional[float] = None
+    lastIllegal: Optional[int] = None
     startTime: float = field(default_factory=time.monotonic)
     samples: List[RefinementSample] = field(default_factory=list)
+    layerSamples: List[LayerSample] = field(default_factory=list)
     marked: dict = field(default_factory=dict)
 
 
@@ -104,9 +116,17 @@ class SnappyLogParser:
             state.extrusionPercent = None
             return True
 
+        if m := _ILLEGAL.match(line):
+            state.lastIllegal = int(m.group(1))
+            return False
+
         if m := _EXTRUDING.match(line):
             state.phase = 'layer addition'
             state.extrusionPercent = float(m.group(3))
+            state.layerSamples.append(LayerSample(
+                index=len(state.layerSamples), iteration=state.layerIteration or 0,
+                extrudedPercent=state.extrusionPercent, illegalFaces=state.lastIllegal,
+                wallTime=now - state.startTime))
             return True
 
         return False
